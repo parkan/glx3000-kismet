@@ -84,6 +84,9 @@ $(KISMET_PATCHED): $(KISMET_COPIED)
 		$(OPENWRT)/package/kismet-openwrt/kismet.mk
 	sed -i '/--enable-protobuflite/d' \
 		$(OPENWRT)/package/kismet-openwrt/kismet.mk
+	# disable hardware we don't have
+	sed -i 's/--disable-wifi-coconut/--disable-libnm \\\n\t--disable-libusb \\\n\t--disable-librtlsdr \\\n\t--disable-ubertooth \\\n\t--disable-wifi-coconut/' \
+		$(OPENWRT)/package/kismet-openwrt/kismet.mk
 	# update title
 	sed -i 's/Kismet 2023/Kismet 2025/' \
 		$(OPENWRT)/package/kismet-openwrt/kismet/Makefile
