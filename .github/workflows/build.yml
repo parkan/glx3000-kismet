@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
 
+env:
+  FORCE_UNSAFE_CONFIGURE: 1
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,33 +19,38 @@ jobs:
           apt-get install -y \
             build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
             gettext git libncurses-dev libssl-dev python3-setuptools \
-            rsync swig unzip zlib1g-dev file wget qemu-utils
+            rsync swig unzip zlib1g-dev file wget qemu-utils sudo
 
       - uses: actions/checkout@v4
 
+      - name: Create build user
+        run: |
+          useradd -m builder
+          chown -R builder: .
+
       - name: Clone sources
-        run: make clone
+        run: sudo -u builder make clone
 
       - name: Prepare kismet packages
-        run: make openwrt/package/kismet-openwrt/.patched
+        run: sudo -u builder make openwrt/package/kismet-openwrt/.patched
 
       - name: Update feeds
         run: |
-          cd openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          touch .feeds.installed
+          sudo -u builder cp feeds.conf openwrt/feeds.conf
+          cd openwrt && sudo -u builder ./scripts/feeds update -a
+          sudo -u builder ./scripts/feeds install -a
+          sudo -u builder touch .feeds.installed
 
       - name: Configure
         run: |
-          cp config.seed openwrt/.config
-          cd openwrt && make defconfig
+          sudo -u builder cp config.seed openwrt/.config
+          cd openwrt && sudo -u builder make defconfig
 
       - name: Download sources
-        run: cd openwrt && make download -j$(nproc)
+        run: cd openwrt && sudo -u builder make download -j$(nproc)
 
       - name: Build
-        run: cd openwrt && make -j$(nproc) || make -j1 V=s
+        run: cd openwrt && sudo -u builder make -j$(nproc) || sudo -u builder make -j1 V=s
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
