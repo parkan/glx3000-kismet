@@ -1,0 +1,43 @@
+# GL-X3000 Kismet survey image config seed
+# expand with: make defconfig
+
+# target
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+CONFIG_TARGET_mediatek_filogic_DEVICE_glinet_gl-x3000=y
+
+# kismet
+CONFIG_PACKAGE_kismet=y
+CONFIG_PACKAGE_kismet-capture-linux-wifi=y
+
+# wireless drivers (monitor mode)
+CONFIG_PACKAGE_kmod-mt76-core=y
+CONFIG_PACKAGE_kmod-mt7915e=y
+CONFIG_PACKAGE_kmod-mac80211=y
+CONFIG_PACKAGE_kmod-cfg80211=y
+
+# gps
+CONFIG_PACKAGE_gpsd=y
+CONFIG_PACKAGE_gpsd-clients=y
+
+# modem / serial
+CONFIG_PACKAGE_picocom=y
+
+# luci
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-ssl=y
+
+# networking
+CONFIG_PACKAGE_wget-ssl=y
+CONFIG_PACKAGE_curl=y
+
+# utilities
+CONFIG_PACKAGE_htop=y
+CONFIG_PACKAGE_nano=y
+CONFIG_PACKAGE_usbutils=y
+
+# storage (emmc + microsd)
+CONFIG_PACKAGE_block-mount=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_e2fsprogs=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
