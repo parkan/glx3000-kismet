@@ -4,47 +4,14 @@ on:
   push:
     branches: [main]
 
-env:
-  FORCE_UNSAFE_CONFIGURE: 1
-
 jobs:
-  container:
-    runs-on: ubuntu-latest
-    permissions:
-      packages: write
-    outputs:
-      image: ghcr.io/${{ github.repository }}/builder:${{ steps.hash.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Containerfile hash
-        id: hash
-        run: echo "tag=$(sha256sum Containerfile | cut -c1-12)" >> "$GITHUB_OUTPUT"
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Containerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/builder:${{ steps.hash.outputs.tag }}
-            ghcr.io/${{ github.repository }}/builder:latest
-
   build:
-    needs: container
     runs-on: ubuntu-latest
-    container:
-      image: ${{ needs.container.outputs.image }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Podman
+        uses: parkan/github-actions/setup-podman-docker@main
 
       - name: Build image
         run: make image
