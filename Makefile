@@ -8,9 +8,10 @@ NPROC := $(shell nproc)
 IMAGE_NAME := openwrt-builder
 IMAGE_TAG := $(IMAGE_NAME):latest
 
-# if already inside the build container (CI), run commands directly.
-# otherwise wrap with podman.
-ifeq ($(wildcard /.dockerenv /run/.containerenv),)
+# if already inside the build container (CI), run in openwrt dir directly.
+# otherwise wrap with podman (which bind-mounts openwrt at /build).
+IN_CONTAINER := $(wildcard /.dockerenv /run/.containerenv)
+ifeq ($(IN_CONTAINER),)
 RUN := podman run --rm \
 	-v $(CURDIR)/$(OPENWRT):/build:Z \
 	-w /build \
@@ -102,9 +103,9 @@ FEED_PKGS := gpsd gpsd-clients picocom luci luci-ssl curl wget-ssl \
 	htop nano usbutils e2fsprogs block-mount \
 	libpcap libpcre2 libsensors libopenssl libnl libcap
 
-$(FEEDS_DONE): $(CLONED_OPENWRT) $(KISMET_PATCHED) $(CONTAINER_BUILT) feeds.conf
+$(FEEDS_DONE): $(CLONED_OPENWRT) $(KISMET_PATCHED) $(if $(IN_CONTAINER),,$(CONTAINER_BUILT)) feeds.conf
 	cp feeds.conf $(OPENWRT)/feeds.conf
-	$(RUN) bash -c './scripts/feeds update -a && ./scripts/feeds install $(FEED_PKGS)'
+	cd $(OPENWRT) && $(RUN) bash -c './scripts/feeds update -a && ./scripts/feeds install $(FEED_PKGS)'
 	touch $@
 
 # --- phase 3: config ---
@@ -112,16 +113,16 @@ $(FEEDS_DONE): $(CLONED_OPENWRT) $(KISMET_PATCHED) $(CONTAINER_BUILT) feeds.conf
 config: $(CONFIG)
 $(CONFIG): $(FEEDS_DONE) config.seed
 	cp config.seed $(OPENWRT)/.config
-	$(RUN) make defconfig
+	cd $(OPENWRT) && $(RUN) make defconfig
 
 # --- phase 4: build ---
 
 image: $(SYSUPGRADE)
 $(SYSUPGRADE): $(CONFIG)
-	$(RUN) bash -c 'make download -j$(NPROC) && make -j$(NPROC)'
+	cd $(OPENWRT) && $(RUN) bash -c 'make download -j$(NPROC) && make -j$(NPROC)'
 
 build-verbose: $(CONFIG)
-	$(RUN) bash -c 'make download -j$(NPROC) && make -j1 V=s 2>&1 | tee build.log'
+	cd $(OPENWRT) && $(RUN) bash -c 'make download -j$(NPROC) && make -j1 V=s 2>&1 | tee build.log'
 
 # --- helpers ---
 
