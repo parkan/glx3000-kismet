@@ -92,14 +92,9 @@ $(KISMET_PATCHED): $(KISMET_COPIED)
 	touch $@
 
 feeds: $(FEEDS_DONE)
-# only install feed packages we actually reference in config.seed
-FEED_PKGS := gpsd gpsd-clients picocom luci luci-ssl curl wget-ssl \
-	htop nano usbutils e2fsprogs block-mount \
-	libpcap libpcre2 libsensors libopenssl libnl libcap
-
 $(FEEDS_DONE): $(CLONED_OPENWRT) $(KISMET_PATCHED) $(CONTAINER_BUILT) feeds.conf
 	cp feeds.conf $(OPENWRT)/feeds.conf
-	$(RUN) bash -c './scripts/feeds update -a && ./scripts/feeds install $(FEED_PKGS)'
+	$(RUN) bash -c './scripts/feeds update -a && ./scripts/feeds install -a'
 	touch $@
 
 # --- phase 3: config ---
