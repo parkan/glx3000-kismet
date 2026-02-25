@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y \
     rsync swig unzip zlib1g-dev file wget qemu-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# openwrt build must not run as root
+# create non-root user for local builds (--userns=keep-id maps host UID)
+# CI runs as root with FORCE_UNSAFE_CONFIGURE=1
 RUN useradd -m -s /bin/bash builder
-USER builder
 WORKDIR /build
