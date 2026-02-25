@@ -10,44 +10,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Podman
-        uses: parkan/github-actions/setup-podman-docker@main
-        with:
-          cache-storage: 'true'
-          cache-key-prefix: 'openwrt-builder'
+      - name: Install zstd
+        run: sudo apt-get install -y zstd
 
-      - name: Clone and patch
-        run: make clone openwrt/package/kismet-openwrt/.patched
-
-      - name: Cache feeds
+      - name: Cache SDK and Image Builder
         uses: actions/cache@v4
         with:
           path: |
-            openwrt/feeds
-            openwrt/package/feeds
-            openwrt/.feeds.installed
-          key: feeds-${{ hashFiles('feeds.conf') }}
+            openwrt-sdk-*.tar.zst
+            openwrt-imagebuilder-*.tar.zst
+          key: openwrt-24.10.5
 
       - name: Build image
         run: make image
-
-      - name: Cleanup container storage
-        if: always()
-        uses: parkan/github-actions/devcontainer-cleanup@main
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: openwrt-gl-x3000-kismet
           path: |
-            openwrt/bin/targets/mediatek/filogic/*sysupgrade*
-            openwrt/bin/targets/mediatek/filogic/*initramfs*
-            openwrt/bin/targets/mediatek/filogic/sha256sums
+            openwrt-imagebuilder-*/bin/targets/mediatek/filogic/*sysupgrade*
+            openwrt-imagebuilder-*/bin/targets/mediatek/filogic/*initramfs*
+            openwrt-imagebuilder-*/bin/targets/mediatek/filogic/sha256sums
 
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            openwrt/bin/targets/mediatek/filogic/*sysupgrade*
-            openwrt/bin/targets/mediatek/filogic/*initramfs*
+            openwrt-imagebuilder-*/bin/targets/mediatek/filogic/*sysupgrade*
+            openwrt-imagebuilder-*/bin/targets/mediatek/filogic/*initramfs*
