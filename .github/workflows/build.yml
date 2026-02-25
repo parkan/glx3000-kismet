@@ -46,29 +46,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clone sources
-        run: make clone
-
-      - name: Prepare kismet packages
-        run: make openwrt/package/kismet-openwrt/.patched
-
-      - name: Update feeds
-        run: |
-          cp feeds.conf openwrt/feeds.conf
-          cd openwrt && ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          touch .feeds.installed
-
-      - name: Configure
-        run: |
-          cp config.seed openwrt/.config
-          cd openwrt && make defconfig
-
-      - name: Download sources
-        run: cd openwrt && make download -j$(nproc)
-
-      - name: Build
-        run: cd openwrt && make -j$(nproc) || make -j1 V=s
+      - name: Build image
+        run: make image
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

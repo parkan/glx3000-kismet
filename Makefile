@@ -8,13 +8,17 @@ NPROC := $(shell nproc)
 IMAGE_NAME := openwrt-builder
 IMAGE_TAG := $(IMAGE_NAME):latest
 
-# the openwrt tree is bind-mounted at /build inside the container.
-# output lands in openwrt/bin/ on the host.
+# if already inside the build container (CI), run commands directly.
+# otherwise wrap with podman.
+ifeq ($(wildcard /.dockerenv /run/.containerenv),)
 RUN := podman run --rm \
 	-v $(CURDIR)/$(OPENWRT):/build:Z \
 	-w /build \
 	--userns=keep-id \
 	$(IMAGE_TAG)
+else
+RUN :=
+endif
 
 # sentinel files
 CLONED_OPENWRT := $(OPENWRT)/.git/HEAD
