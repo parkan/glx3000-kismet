@@ -12,9 +12,28 @@ jobs:
 
       - name: Set up Podman
         uses: parkan/github-actions/setup-podman-docker@main
+        with:
+          cache-storage: 'true'
+          cache-key-prefix: 'openwrt-builder'
+
+      - name: Clone and patch
+        run: make clone openwrt/package/kismet-openwrt/.patched
+
+      - name: Cache feeds
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/feeds
+            openwrt/package/feeds
+            openwrt/.feeds.installed
+          key: feeds-${{ hashFiles('feeds.conf') }}
 
       - name: Build image
         run: make image
+
+      - name: Cleanup container storage
+        if: always()
+        uses: parkan/github-actions/devcontainer-cleanup@main
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
