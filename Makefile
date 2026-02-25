@@ -64,10 +64,12 @@ $(KISMET_COPIED): $(CLONED_KPKG) $(CLONED_OPENWRT)
 	touch $@
 
 $(KISMET_PATCHED): $(KISMET_COPIED)
-	# bump version to 2025-09-R1
-	sed -i 's/^PKG_VERSION:=.*/PKG_VERSION:=2025-09-R1/' \
+	# bump version; use apk-compatible format, pin git tag explicitly
+	sed -i 's/^PKG_VERSION:=.*/PKG_VERSION:=2025.09.1/' \
 		$(OPENWRT)/package/kismet-openwrt/kismet.mk
 	sed -i 's/^PKG_RELEASE:=.*/PKG_RELEASE:=0/' \
+		$(OPENWRT)/package/kismet-openwrt/kismet.mk
+	sed -i 's/^PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=$(KISMET_TAG)/' \
 		$(OPENWRT)/package/kismet-openwrt/kismet.mk
 	# protobuf is opt-in in 2025-09-R1, drop all protobuf deps
 	sed -i '/^PKG_BUILD_DEPENDS:=protobuf-c\/host/d' \
