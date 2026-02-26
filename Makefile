@@ -8,20 +8,30 @@ OPENWRT_PROFILE := glinet_gl-x3000
 KISMET_TAG := kismet-2025-09-R1
 NPROC := $(shell nproc)
 
+IMAGE_NAME := openwrt-builder
+IMAGE_TAG := $(IMAGE_NAME):latest
+
+RUN := podman run --rm \
+	-v $(CURDIR):/build:Z \
+	-w /build \
+	--userns=keep-id \
+	$(IMAGE_TAG)
+
 # download urls
 BASE_URL := https://downloads.openwrt.org/releases/$(OPENWRT_VERSION)/targets/mediatek/filogic
 SDK_TAR   := openwrt-sdk-$(OPENWRT_VERSION)-$(OPENWRT_TARGET)_gcc-13.3.0_musl.Linux-x86_64.tar.zst
 IB_TAR    := openwrt-imagebuilder-$(OPENWRT_VERSION)-$(OPENWRT_TARGET).Linux-x86_64.tar.zst
 
-# local dirs (extracted archives drop the .tar.zst suffix)
+# local dirs
 SDK := $(basename $(basename $(SDK_TAR)))
 IB  := $(basename $(basename $(IB_TAR)))
 KISMET_PKG := kismet-packages
 
 # sentinel files
-KISMET_COPIED  := $(SDK)/package/kismet-openwrt/.copied
-KISMET_PATCHED := $(SDK)/package/kismet-openwrt/.patched
-KISMET_BUILT   := $(SDK)/.kismet-built
+CONTAINER_BUILT := .container-built
+KISMET_COPIED   := $(SDK)/package/kismet-openwrt/.copied
+KISMET_PATCHED  := $(SDK)/package/kismet-openwrt/.patched
+KISMET_BUILT    := $(SDK)/.kismet-built
 
 KISMET_PKGS := kismet kismet-capture-linux-wifi
 
@@ -33,9 +43,16 @@ PACKAGES := kismet kismet-capture-linux-wifi \
 
 SYSUPGRADE := $(IB)/bin/targets/mediatek/filogic/openwrt-$(OPENWRT_VERSION)-$(OPENWRT_TARGET)-$(OPENWRT_PROFILE)-squashfs-sysupgrade.bin
 
-.PHONY: all sdk-setup kismet image clean distclean
+.PHONY: all container kismet image clean distclean
 
 all: image
+
+# --- container ---
+
+container: $(CONTAINER_BUILT)
+$(CONTAINER_BUILT): Containerfile
+	podman build -t $(IMAGE_TAG) -f Containerfile .
+	touch $@
 
 # --- download + extract ---
 
@@ -97,19 +114,19 @@ $(KISMET_PATCHED): $(KISMET_COPIED)
 
 # --- compile kismet ---
 
-$(KISMET_BUILT): $(KISMET_PATCHED)
-	cd $(SDK) && make defconfig
-	cd $(SDK) && make package/kismet-openwrt/kismet/compile V=s -j1
-	cd $(SDK) && make package/kismet-openwrt/kismet-capture-linux-wifi/compile V=s -j1
+$(KISMET_BUILT): $(KISMET_PATCHED) $(CONTAINER_BUILT)
+	$(RUN) make -C $(SDK) defconfig
+	$(RUN) make -C $(SDK) package/kismet-openwrt/kismet/compile V=s -j1
+	$(RUN) make -C $(SDK) package/kismet-openwrt/kismet-capture-linux-wifi/compile V=s -j1
 	touch $@
 
 kismet: $(KISMET_BUILT)
 
 # --- assemble image ---
 
-$(SYSUPGRADE): $(KISMET_BUILT) $(IB)/.extracted
+$(SYSUPGRADE): $(KISMET_BUILT) $(IB)/.extracted $(CONTAINER_BUILT)
 	cp $(SDK)/bin/packages/$(OPENWRT_ARCH)/base/kismet*.ipk $(IB)/packages/
-	cd $(IB) && make image \
+	$(RUN) make -C $(IB) image \
 		PROFILE="$(OPENWRT_PROFILE)" \
 		PACKAGES="$(PACKAGES)" \
 		$(if $(wildcard files),FILES="$(CURDIR)/files/")
@@ -125,4 +142,5 @@ clean:
 
 distclean:
 	rm -rf $(SDK) $(IB) $(KISMET_PKG)
-	rm -f $(SDK_TAR) $(IB_TAR)
+	rm -f $(SDK_TAR) $(IB_TAR) $(CONTAINER_BUILT)
+	podman rmi $(IMAGE_TAG) 2>/dev/null || true
