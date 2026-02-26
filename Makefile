@@ -62,8 +62,15 @@ $(SDK_TAR):
 $(IB_TAR):
 	wget -q $(BASE_URL)/$(IB_TAR)
 
+SDK_READY := $(SDK)/.feeds-installed
+
 $(SDK)/.extracted: $(SDK_TAR)
 	tar --zstd -xf $(SDK_TAR)
+	touch $@
+
+$(SDK_READY): $(SDK)/.extracted $(CONTAINER_BUILT)
+	$(RUN) make -C $(SDK) defconfig
+	$(RUN) bash -c 'cd $(SDK) && ./scripts/feeds update -a && ./scripts/feeds install -a'
 	touch $@
 
 $(IB)/.extracted: $(IB_TAR)
@@ -75,7 +82,7 @@ $(IB)/.extracted: $(IB_TAR)
 $(KISMET_PKG)/.git/HEAD:
 	git clone https://github.com/kismetwireless/kismet-packages.git $(KISMET_PKG)
 
-$(KISMET_COPIED): $(KISMET_PKG)/.git/HEAD $(SDK)/.extracted
+$(KISMET_COPIED): $(KISMET_PKG)/.git/HEAD $(SDK_READY)
 	mkdir -p $(SDK)/package/kismet-openwrt
 	cp $(KISMET_PKG)/openwrt/kismet-openwrt/kismet.mk $(SDK)/package/kismet-openwrt/
 	$(foreach pkg,$(KISMET_PKGS),\
@@ -114,8 +121,7 @@ $(KISMET_PATCHED): $(KISMET_COPIED)
 
 # --- compile kismet ---
 
-$(KISMET_BUILT): $(KISMET_PATCHED) $(CONTAINER_BUILT)
-	$(RUN) make -C $(SDK) defconfig
+$(KISMET_BUILT): $(KISMET_PATCHED)
 	$(RUN) make -C $(SDK) package/kismet-openwrt/kismet/compile V=s -j1
 	$(RUN) make -C $(SDK) package/kismet-openwrt/kismet-capture-linux-wifi/compile V=s -j1
 	touch $@
@@ -124,7 +130,7 @@ kismet: $(KISMET_BUILT)
 
 # --- assemble image ---
 
-$(SYSUPGRADE): $(KISMET_BUILT) $(IB)/.extracted $(CONTAINER_BUILT)
+$(SYSUPGRADE): $(KISMET_BUILT) $(IB)/.extracted
 	cp $(SDK)/bin/packages/$(OPENWRT_ARCH)/base/kismet*.ipk $(IB)/packages/
 	$(RUN) make -C $(IB) image \
 		PROFILE="$(OPENWRT_PROFILE)" \
