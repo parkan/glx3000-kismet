@@ -99,8 +99,8 @@ $(KISMET_PATCHED): $(KISMET_COPIED)
 
 $(KISMET_BUILT): $(KISMET_PATCHED)
 	cd $(SDK) && make defconfig
-	cd $(SDK) && make package/kismet-openwrt/kismet/compile -j$(NPROC)
-	cd $(SDK) && make package/kismet-openwrt/kismet-capture-linux-wifi/compile -j$(NPROC)
+	cd $(SDK) && make package/kismet-openwrt/kismet/compile V=s -j1
+	cd $(SDK) && make package/kismet-openwrt/kismet-capture-linux-wifi/compile V=s -j1
 	touch $@
 
 kismet: $(KISMET_BUILT)
