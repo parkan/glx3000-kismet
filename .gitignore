@@ -2,4 +2,5 @@ openwrt-sdk-*/
 openwrt-imagebuilder-*/
 *.tar.zst
 kismet-packages/
+feeds/
 .container-built

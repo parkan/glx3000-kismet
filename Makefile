@@ -27,6 +27,17 @@ SDK := $(basename $(basename $(SDK_TAR)))
 IB  := $(basename $(basename $(IB_TAR)))
 KISMET_PKG := kismet-packages
 
+# sparse feeds: only the packages kismet actually needs
+FEED_BASE_DIR := feeds/base
+FEED_PKG_DIR  := feeds/packages
+
+# base packages (from openwrt tree) that aren't pre-staged in SDK
+BASE_FEED_PKGS := package/libs/zlib package/libs/libpcap package/libs/ncurses \
+	package/libs/openssl package/libs/pcre2 package/libs/libnl package/libs/libcap
+
+# packages feed deps not in base
+PKG_FEED_PKGS := utils/lm-sensors libs/sqlite3
+
 # sentinel files
 CONTAINER_BUILT := .container-built
 KISMET_COPIED   := $(SDK)/package/kismet-openwrt/.copied
@@ -56,31 +67,59 @@ $(CONTAINER_BUILT): Containerfile
 
 # --- download + extract ---
 
-$(SDK_TAR):
-	wget -q $(BASE_URL)/$(SDK_TAR)
+$(SDK_TAR): $(CONTAINER_BUILT)
+	$(RUN) wget -q $(BASE_URL)/$(SDK_TAR)
 
-$(IB_TAR):
-	wget -q $(BASE_URL)/$(IB_TAR)
-
-SDK_READY := $(SDK)/.feeds-installed
+$(IB_TAR): $(CONTAINER_BUILT)
+	$(RUN) wget -q $(BASE_URL)/$(IB_TAR)
 
 $(SDK)/.extracted: $(SDK_TAR)
-	tar --zstd -xf $(SDK_TAR)
-	touch $@
-
-$(SDK_READY): $(SDK)/.extracted $(CONTAINER_BUILT)
-	$(RUN) make -C $(SDK) defconfig
-	$(RUN) bash -c 'cd $(SDK) && ./scripts/feeds update -a && ./scripts/feeds install -a'
+	$(RUN) tar --zstd -xf $(SDK_TAR)
+	# fix broken symlinks left over from openwrt build farm
+	$(RUN) bash -c '\
+		cd $(SDK)/staging_dir/host/bin && \
+		ln -sf $$(which gcc) gcc && \
+		ln -sf $$(which g++) g++ && \
+		ln -sf $$(which python3) python && \
+		ln -sf $$(which python3) python3 && \
+		ln -sf /bin/true ldconfig && \
+		rm -f xxd'
 	touch $@
 
 $(IB)/.extracted: $(IB_TAR)
-	tar --zstd -xf $(IB_TAR)
+	$(RUN) tar --zstd -xf $(IB_TAR)
+	touch $@
+
+# --- sparse feeds: only kismet's deps ---
+
+$(FEED_BASE_DIR)/.git/HEAD: $(CONTAINER_BUILT)
+	$(RUN) git clone --depth=1 --filter=blob:none --sparse \
+		https://github.com/openwrt/openwrt.git \
+		-b v$(OPENWRT_VERSION) $(FEED_BASE_DIR)
+	$(RUN) bash -c 'cd $(FEED_BASE_DIR) && git sparse-checkout set $(BASE_FEED_PKGS)'
+
+$(FEED_PKG_DIR)/.git/HEAD: $(CONTAINER_BUILT)
+	$(RUN) git clone --depth=1 --filter=blob:none --sparse \
+		https://github.com/openwrt/packages.git \
+		-b openwrt-24.10 $(FEED_PKG_DIR)
+	$(RUN) bash -c 'cd $(FEED_PKG_DIR) && git sparse-checkout set $(PKG_FEED_PKGS)'
+
+SDK_READY := $(SDK)/.feeds-installed
+
+$(SDK_READY): $(SDK)/.extracted $(FEED_BASE_DIR)/.git/HEAD $(FEED_PKG_DIR)/.git/HEAD
+	printf 'src-link base /build/%s/package\n' "$(FEED_BASE_DIR)" > $(SDK)/feeds.conf
+	printf 'src-link packages /build/%s\n' "$(FEED_PKG_DIR)" >> $(SDK)/feeds.conf
+	$(RUN) bash -c 'cd $(SDK) && ./scripts/feeds update -a && \
+		./scripts/feeds install zlib libpcap ncurses openssl pcre2 libnl libcap sqlite3 lm-sensors'
+	$(RUN) make -C $(SDK) defconfig
+	# disable devcrypto engine — needs kernel cryptodev headers not in SDK
+	sed -i 's/^CONFIG_PACKAGE_libopenssl-devcrypto=.*/# CONFIG_PACKAGE_libopenssl-devcrypto is not set/' $(SDK)/.config
 	touch $@
 
 # --- kismet packages ---
 
-$(KISMET_PKG)/.git/HEAD:
-	git clone https://github.com/kismetwireless/kismet-packages.git $(KISMET_PKG)
+$(KISMET_PKG)/.git/HEAD: $(CONTAINER_BUILT)
+	$(RUN) git clone https://github.com/kismetwireless/kismet-packages.git $(KISMET_PKG)
 
 $(KISMET_COPIED): $(KISMET_PKG)/.git/HEAD $(SDK_READY)
 	mkdir -p $(SDK)/package/kismet-openwrt
@@ -114,6 +153,9 @@ $(KISMET_PATCHED): $(KISMET_COPIED)
 	# disable hardware we don't have
 	sed -i 's/--disable-wifi-coconut/--disable-libnm \\\n\t--disable-libusb \\\n\t--disable-librtlsdr \\\n\t--disable-ubertooth \\\n\t--disable-mosquitto \\\n\t--disable-wifi-coconut/' \
 		$(SDK)/package/kismet-openwrt/kismet.mk
+	# add missing libatomic dep
+	sed -i 's/+libopenssl/+libopenssl +libatomic/' \
+		$(SDK)/package/kismet-openwrt/kismet/Makefile
 	# update title
 	sed -i 's/Kismet 2023/Kismet 2025/' \
 		$(SDK)/package/kismet-openwrt/kismet/Makefile
@@ -142,11 +184,11 @@ image: $(SYSUPGRADE)
 # --- helpers ---
 
 clean:
-	rm -rf $(SDK)/build_dir $(SDK)/bin $(SDK)/staging_dir/target-*
+	rm -rf $(SDK)/bin $(SDK)/tmp
 	rm -rf $(IB)/bin $(IB)/build_dir
 	rm -f $(KISMET_BUILT) $(KISMET_PATCHED) $(KISMET_COPIED)
 
 distclean:
-	rm -rf $(SDK) $(IB) $(KISMET_PKG)
+	rm -rf $(SDK) $(IB) $(KISMET_PKG) feeds
 	rm -f $(SDK_TAR) $(IB_TAR) $(CONTAINER_BUILT)
 	podman rmi $(IMAGE_TAG) 2>/dev/null || true
