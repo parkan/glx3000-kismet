@@ -164,8 +164,8 @@ $(KISMET_PATCHED): $(KISMET_COPIED)
 # --- compile kismet ---
 
 $(KISMET_BUILT): $(KISMET_PATCHED)
-	$(RUN) make -C $(SDK) package/kismet-openwrt/kismet/compile V=s -j1
-	$(RUN) make -C $(SDK) package/kismet-openwrt/kismet-capture-linux-wifi/compile V=s -j1
+	$(RUN) make -C $(SDK) package/kismet-openwrt/kismet/compile -j$(NPROC)
+	$(RUN) make -C $(SDK) package/kismet-openwrt/kismet-capture-linux-wifi/compile -j$(NPROC)
 	touch $@
 
 kismet: $(KISMET_BUILT)
