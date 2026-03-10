@@ -67,10 +67,10 @@ $(CONTAINER_BUILT): Containerfile
 
 # --- download + extract ---
 
-$(SDK_TAR): $(CONTAINER_BUILT)
+$(SDK_TAR): | $(CONTAINER_BUILT)
 	$(RUN) wget -q $(BASE_URL)/$(SDK_TAR)
 
-$(IB_TAR): $(CONTAINER_BUILT)
+$(IB_TAR): | $(CONTAINER_BUILT)
 	$(RUN) wget -q $(BASE_URL)/$(IB_TAR)
 
 $(SDK)/.extracted: $(SDK_TAR)
@@ -92,13 +92,13 @@ $(IB)/.extracted: $(IB_TAR)
 
 # --- sparse feeds: only kismet's deps ---
 
-$(FEED_BASE_DIR)/.git/HEAD: $(CONTAINER_BUILT)
+$(FEED_BASE_DIR)/.git/HEAD: | $(CONTAINER_BUILT)
 	$(RUN) git clone --depth=1 --filter=blob:none --sparse \
 		https://github.com/openwrt/openwrt.git \
 		-b v$(OPENWRT_VERSION) $(FEED_BASE_DIR)
 	$(RUN) bash -c 'cd $(FEED_BASE_DIR) && git sparse-checkout set $(BASE_FEED_PKGS)'
 
-$(FEED_PKG_DIR)/.git/HEAD: $(CONTAINER_BUILT)
+$(FEED_PKG_DIR)/.git/HEAD: | $(CONTAINER_BUILT)
 	$(RUN) git clone --depth=1 --filter=blob:none --sparse \
 		https://github.com/openwrt/packages.git \
 		-b openwrt-24.10 $(FEED_PKG_DIR)
@@ -118,7 +118,7 @@ $(SDK_READY): $(SDK)/.extracted $(FEED_BASE_DIR)/.git/HEAD $(FEED_PKG_DIR)/.git/
 
 # --- kismet packages ---
 
-$(KISMET_PKG)/.git/HEAD: $(CONTAINER_BUILT)
+$(KISMET_PKG)/.git/HEAD: | $(CONTAINER_BUILT)
 	$(RUN) git clone https://github.com/kismetwireless/kismet-packages.git $(KISMET_PKG)
 
 $(KISMET_COPIED): $(KISMET_PKG)/.git/HEAD $(SDK_READY)
