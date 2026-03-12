@@ -10,7 +10,7 @@ INTERVAL="${SCAN_INTERVAL:-10}"
 
 # wait for kismet to come up
 wait_for_kismet() {
-	for i in $(seq 1 30); do
+	i=0; while [ "$i" -lt 30 ]; do i=$((i + 1))
 		curl -s -u "$KISMET_AUTH" "$KISMET_URL/system/status.json" >/dev/null 2>&1 && return 0
 		sleep 1
 	done
@@ -21,7 +21,7 @@ wait_for_kismet() {
 # parse iw scan output into kismet scan_report json
 # reads from stdin, writes json to stdout
 parse_iw_scan() {
-	awk '
+	awk -v name="$SOURCE_NAME" -v uuid="$SOURCE_UUID" '
 	BEGIN { first = 1; printf "{\"source_name\":\"%s\",\"source_uuid\":\"%s\",\"reports\":[", name, uuid }
 	/^BSS / {
 		if (bssid != "") {
@@ -59,7 +59,7 @@ parse_iw_scan() {
 		}
 		printf "]}"
 	}
-	' name="$SOURCE_NAME" uuid="$SOURCE_UUID"
+	'
 }
 
 # get list of wireless interfaces
@@ -67,12 +67,15 @@ get_interfaces() {
 	iw dev 2>/dev/null | awk '/Interface/ { print $2 }'
 }
 
+# allow sourcing for tests without running the main loop
+[ "${IW_SCAN_FEEDER_SOURCED:-}" = 1 ] && return 0 2>/dev/null
+
 wait_for_kismet || exit 1
 
 while true; do
 	scan_output=""
 	for iface in $(get_interfaces); do
-		result=$(iw dev "$iface" scan dump 2>/dev/null)
+		result=$(iw dev "$iface" scan 2>&1)
 		if [ -n "$result" ]; then
 			scan_output="${scan_output}${result}
 "
