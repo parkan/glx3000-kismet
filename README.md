@@ -112,10 +112,85 @@ ssh root@192.168.1.1
 passwd
 ```
 
-Kismet is ready to run:
+## Scanning
 
-```
-kismet
+The GL-X3000 has two radios: `phy0` (2.4 GHz, mt76) and `phy1`
+(5 GHz, mt76). Both support monitor mode. You can dedicate one or
+both to scanning while keeping the other for management access.
+
+Access the Kismet web UI at `http://<router-ip>:2501` after starting.
+
+### Monitor mode (promiscuous)
+
+Full passive capture -- sees all frames including those destined for
+other stations. Required for complete survey coverage.
+
+```sh
+# take down any managed interfaces on the radio you want to use
+ip link set wlan1 down
+iw dev wlan1 del
+
+# create a monitor interface
+iw phy phy1 interface add mon0 type monitor
+ip link set mon0 up
+
+# start kismet with the monitor source
+kismet -c mon0
 ```
 
-Access the Kismet web UI at `http://192.168.1.1:2501`.
+To scan both radios:
+
+```sh
+ip link set wlan0 down
+iw dev wlan0 del
+iw phy phy0 interface add mon1 type monitor
+ip link set mon1 up
+
+kismet -c mon0 -c mon1
+```
+
+This tears down the WiFi AP, so you need wired ethernet or a
+separate management interface to reach the router.
+
+To restore normal operation afterward:
+
+```sh
+ip link set mon0 down
+iw dev mon0 del
+wifi up
+```
+
+### Associated mode (non-promiscuous)
+
+Kismet scans using the managed (AP/client) interface without entering
+monitor mode. Sees only beacons, probe responses, and frames the
+radio would normally receive. Less complete than monitor mode, but
+the WiFi AP stays up -- clients stay connected and you can manage
+the router over WiFi.
+
+```sh
+kismet -c wlan1:type=linuxwifi,vif=managed
+```
+
+Or both radios:
+
+```sh
+kismet -c wlan0:type=linuxwifi,vif=managed -c wlan1:type=linuxwifi,vif=managed
+```
+
+Kismet will trigger periodic channel hops using the existing
+interface. Clients may see brief interruptions during hops but
+generally stay associated.
+
+### Adding GPS
+
+If a USB GPS is connected (shows up as `/dev/ttyUSB*` or
+`/dev/ttyACM*`):
+
+```sh
+gpsd /dev/ttyUSB0
+kismet -c mon0 --override gps=gpsd:host=localhost,port=2947
+```
+
+Kismet logs location data alongside wireless observations, producing
+wardriving-style output.

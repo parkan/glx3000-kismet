@@ -1,0 +1,224 @@
+#!/bin/sh
+# survey session manager
+# usage: survey start [scan|monitor] | stop | status
+
+SURVEY_DIR="/tmp/survey"
+SESSION_FILE="$SURVEY_DIR/session.json"
+FEEDER_PID="$SURVEY_DIR/feeder.pid"
+KISMET_PID="$SURVEY_DIR/kismet.pid"
+GPSD_PID="$SURVEY_DIR/gpsd.pid"
+CONFIG="/etc/survey/config.json"
+USB_MOUNT="/mnt/usb"
+LOG_DIR="$USB_MOUNT/kismet"
+
+# read config values
+scan_interval() {
+	jsonfilter -i "$CONFIG" -e '@.scan_interval' 2>/dev/null || echo 10
+}
+
+die() {
+	echo "error: $1" >&2
+	exit 1
+}
+
+is_running() {
+	[ -f "$SESSION_FILE" ] && [ -f "$KISMET_PID" ] && kill -0 "$(cat "$KISMET_PID")" 2>/dev/null
+}
+
+setup_storage() {
+	mkdir -p "$SURVEY_DIR"
+
+	# try to mount USB if not already mounted
+	if ! mountpoint -q "$USB_MOUNT" 2>/dev/null; then
+		if [ -b /dev/sda1 ]; then
+			mkdir -p "$USB_MOUNT"
+			mount /dev/sda1 "$USB_MOUNT" 2>/dev/null
+		fi
+	fi
+
+	if mountpoint -q "$USB_MOUNT" 2>/dev/null; then
+		mkdir -p "$LOG_DIR"
+		echo "logging to $LOG_DIR"
+	else
+		LOG_DIR="/tmp/survey/logs"
+		mkdir -p "$LOG_DIR"
+		echo "warning: no USB storage, logging to $LOG_DIR (RAM)" >&2
+	fi
+}
+
+start_gps() {
+	# auto-detect GPS device
+	gps_dev=""
+	for dev in /dev/ttyACM* /dev/ttyUSB*; do
+		[ -c "$dev" ] && gps_dev="$dev" && break
+	done
+
+	if [ -n "$gps_dev" ]; then
+		gpsd -n "$gps_dev"
+		echo "$!" > "$GPSD_PID"
+		echo "gps: $gps_dev"
+	else
+		echo "gps: none detected"
+	fi
+}
+
+stop_gps() {
+	if [ -f "$GPSD_PID" ]; then
+		kill "$(cat "$GPSD_PID")" 2>/dev/null
+		rm -f "$GPSD_PID"
+	fi
+	killall gpsd 2>/dev/null
+}
+
+cmd_start() {
+	mode="${1:-scan}"
+
+	is_running && die "session already running ($(cat "$SESSION_FILE"))"
+
+	case "$mode" in
+		scan|monitor) ;;
+		*) die "unknown mode: $mode (use 'scan' or 'monitor')" ;;
+	esac
+
+	setup_storage
+	start_gps
+
+	timestamp=$(date +%s)
+	session_name="survey-$(date +%Y%m%d-%H%M%S)"
+
+	if [ "$mode" = "scan" ]; then
+		# start kismet headless, no datasources (feeder pushes via API)
+		kismet --no-ncurses --daemonize \
+			-p "$LOG_DIR" \
+			-t "$session_name" \
+			--log-types kismet \
+			2>/dev/null
+		sleep 2
+
+		# find kismet pid
+		pgrep -f "kismet.*--daemonize" > "$KISMET_PID" 2>/dev/null
+
+		# start scan feeder
+		SCAN_INTERVAL="$(scan_interval)" /usr/bin/iw-scan-feeder.sh &
+		echo "$!" > "$FEEDER_PID"
+
+	elif [ "$mode" = "monitor" ]; then
+		# tear down managed interfaces, create monitor interfaces
+		for iface in $(iw dev 2>/dev/null | awk '/Interface/ { print $2 }'); do
+			ip link set "$iface" down 2>/dev/null
+			iw dev "$iface" del 2>/dev/null
+		done
+
+		# create monitor interfaces
+		sources=""
+		idx=0
+		for phy in phy0 phy1; do
+			if [ -d "/sys/class/ieee80211/$phy" ]; then
+				mon="mon${idx}"
+				iw phy "$phy" interface add "$mon" type monitor 2>/dev/null
+				ip link set "$mon" up 2>/dev/null
+				sources="$sources -c $mon"
+				idx=$((idx + 1))
+			fi
+		done
+
+		[ -z "$sources" ] && die "no monitor interfaces created"
+
+		# shellcheck disable=SC2086
+		kismet --no-ncurses --daemonize \
+			-p "$LOG_DIR" \
+			-t "$session_name" \
+			--log-types kismet \
+			$sources \
+			2>/dev/null
+		sleep 2
+
+		pgrep -f "kismet.*--daemonize" > "$KISMET_PID" 2>/dev/null
+	fi
+
+	# write session state
+	cat > "$SESSION_FILE" <<-EOF
+	{"mode":"$mode","started":$timestamp,"name":"$session_name","log_dir":"$LOG_DIR"}
+	EOF
+
+	echo "session started: $session_name ($mode mode)"
+}
+
+cmd_stop() {
+	is_running || die "no session running"
+
+	# stop feeder
+	if [ -f "$FEEDER_PID" ]; then
+		kill "$(cat "$FEEDER_PID")" 2>/dev/null
+		rm -f "$FEEDER_PID"
+	fi
+
+	# stop kismet
+	if [ -f "$KISMET_PID" ]; then
+		kill "$(cat "$KISMET_PID")" 2>/dev/null
+		# give kismet time to flush logs
+		sleep 2
+		rm -f "$KISMET_PID"
+	fi
+	killall kismet 2>/dev/null
+
+	stop_gps
+
+	# read mode before cleanup
+	mode=$(jsonfilter -i "$SESSION_FILE" -e '@.mode' 2>/dev/null)
+	name=$(jsonfilter -i "$SESSION_FILE" -e '@.name' 2>/dev/null)
+
+	# restore wifi if monitor mode
+	if [ "$mode" = "monitor" ]; then
+		for mon in $(iw dev 2>/dev/null | awk '/Interface/ { print $2 }'); do
+			case "$mon" in mon*) iw dev "$mon" del 2>/dev/null ;; esac
+		done
+		wifi up 2>/dev/null
+		echo "wifi restored"
+	fi
+
+	rm -f "$SESSION_FILE"
+	echo "session stopped: $name"
+}
+
+cmd_status() {
+	if ! is_running; then
+		echo '{"running":false}'
+		return
+	fi
+
+	mode=$(jsonfilter -i "$SESSION_FILE" -e '@.mode' 2>/dev/null)
+	started=$(jsonfilter -i "$SESSION_FILE" -e '@.started' 2>/dev/null)
+	name=$(jsonfilter -i "$SESSION_FILE" -e '@.name' 2>/dev/null)
+	log_dir=$(jsonfilter -i "$SESSION_FILE" -e '@.log_dir' 2>/dev/null)
+	now=$(date +%s)
+	uptime=$((now - started))
+
+	# query kismet for device count
+	devices=$(curl -s -u survey:survey \
+		"http://127.0.0.1:2501/system/status.json" 2>/dev/null | \
+		jsonfilter -e '@.kismet.system.devices.count' 2>/dev/null || echo 0)
+
+	# check gps
+	gps_fix="false"
+	if [ -f "$GPSD_PID" ] && kill -0 "$(cat "$GPSD_PID")" 2>/dev/null; then
+		gps_fix=$(curl -s -u survey:survey \
+			"http://127.0.0.1:2501/gps/location.json" 2>/dev/null | \
+			jsonfilter -e '@.kismet.common.location.fix' 2>/dev/null || echo 0)
+		[ "$gps_fix" -ge 2 ] 2>/dev/null && gps_fix="true" || gps_fix="false"
+	fi
+
+	# log size
+	log_size=$(du -sh "$log_dir" 2>/dev/null | awk '{print $1}')
+
+	cat <<-EOF
+	{"running":true,"mode":"$mode","name":"$name","uptime":$uptime,"devices":$devices,"gps_fix":$gps_fix,"log_size":"${log_size:-0}"}
+	EOF
+}
+
+case "${1:-}" in
+	start)  cmd_start "$2" ;;
+	stop)   cmd_stop ;;
+	status) cmd_status ;;
+	*)      echo "usage: survey start [scan|monitor] | stop | status" >&2; exit 1 ;;
+esac
