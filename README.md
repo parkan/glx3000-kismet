@@ -1,7 +1,12 @@
 # glx3000-kismet
 
-Custom OpenWrt 24.10.5 firmware for the GL-iNet GL-X3000 with
+Custom OpenWrt 24.10.5 firmware for the GL-iNet GL-MT1300 (Beryl) with
 [Kismet](https://www.kismetwireless.net/) wireless survey tools.
+
+> This is the `gl-mt1300-beryl` branch, retargeted from the GL-X3000
+> build to the MT7621 (ramips/mt7621, `mipsel_24kc`) platform. The
+> MT1300 has 256 MB RAM and 32 MB flash, so log Kismet captures to USB
+> and keep the number of active sources modest.
 
 Only Kismet is compiled from source. Everything else comes from
 pre-built OpenWrt packages. The build uses the OpenWrt SDK for
@@ -10,7 +15,7 @@ firmware.
 
 ## What's included
 
-On top of the default GL-X3000 OpenWrt image:
+On top of the default GL-MT1300 OpenWrt image:
 
 - kismet + kismet-capture-linux-wifi (2025-09-R1)
 - gpsd, gpsd-clients, picocom
@@ -37,7 +42,7 @@ assembles the firmware image.
 The output lands at:
 
 ```
-openwrt-imagebuilder-*/bin/targets/mediatek/filogic/openwrt-24.10.5-mediatek-filogic-glinet_gl-x3000-squashfs-sysupgrade.bin
+openwrt-imagebuilder-*/bin/targets/ramips/mt7621/openwrt-24.10.5-ramips-mt7621-glinet_gl-mt1300-squashfs-sysupgrade.bin
 ```
 
 ### Other targets
@@ -66,7 +71,7 @@ this is a different OpenWrt configuration.
 **Via command line (from the router):**
 
 ```
-scp openwrt-imagebuilder-*/bin/targets/mediatek/filogic/*-sysupgrade.bin root@192.168.8.1:/tmp/
+scp openwrt-imagebuilder-*/bin/targets/ramips/mt7621/*-sysupgrade.bin root@192.168.8.1:/tmp/
 ssh root@192.168.8.1
 sysupgrade -n /tmp/*-sysupgrade.bin
 ```
@@ -96,7 +101,7 @@ Open `http://192.168.1.1` in a browser and upload the
 ```
 tftp 192.168.1.1
 binary
-put openwrt-imagebuilder-*/bin/targets/mediatek/filogic/*-initramfs-kernel.bin
+put openwrt-imagebuilder-*/bin/targets/ramips/mt7621/*-initramfs-kernel.bin
 ```
 
 The router boots into the custom image. Nothing is written to flash.

@@ -1,9 +1,12 @@
 SHELL := /bin/bash
 
 OPENWRT_VERSION := 24.10.5
-OPENWRT_TARGET  := mediatek-filogic
-OPENWRT_ARCH    := aarch64_cortex-a53
-OPENWRT_PROFILE := glinet_gl-x3000
+OPENWRT_TARGET  := ramips-mt7621
+OPENWRT_ARCH    := mipsel_24kc
+OPENWRT_PROFILE := glinet_gl-mt1300
+
+# url/output path form of the target (e.g. ramips-mt7621 -> ramips/mt7621)
+OPENWRT_TARGET_PATH := $(subst -,/,$(OPENWRT_TARGET))
 
 KISMET_TAG := kismet-2025-09-R1
 NPROC := $(shell nproc)
@@ -18,7 +21,7 @@ RUN := podman run --rm \
 	$(IMAGE_TAG)
 
 # download urls
-BASE_URL := https://downloads.openwrt.org/releases/$(OPENWRT_VERSION)/targets/mediatek/filogic
+BASE_URL := https://downloads.openwrt.org/releases/$(OPENWRT_VERSION)/targets/$(OPENWRT_TARGET_PATH)
 SDK_TAR   := openwrt-sdk-$(OPENWRT_VERSION)-$(OPENWRT_TARGET)_gcc-13.3.0_musl.Linux-x86_64.tar.zst
 IB_TAR    := openwrt-imagebuilder-$(OPENWRT_VERSION)-$(OPENWRT_TARGET).Linux-x86_64.tar.zst
 
@@ -52,7 +55,7 @@ PACKAGES := kismet kismet-capture-linux-wifi \
 	wget-ssl curl htop nano usbutils \
 	block-mount kmod-fs-ext4 e2fsprogs kmod-fs-vfat
 
-SYSUPGRADE := $(IB)/bin/targets/mediatek/filogic/openwrt-$(OPENWRT_VERSION)-$(OPENWRT_TARGET)-$(OPENWRT_PROFILE)-squashfs-sysupgrade.bin
+SYSUPGRADE := $(IB)/bin/targets/$(OPENWRT_TARGET_PATH)/openwrt-$(OPENWRT_VERSION)-$(OPENWRT_TARGET)-$(OPENWRT_PROFILE)-squashfs-sysupgrade.bin
 
 .PHONY: all container kismet image clean distclean
 
