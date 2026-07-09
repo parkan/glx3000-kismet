@@ -1,0 +1,18 @@
+# log kismet captures to the microSD, not the 32M flash. (the single USB
+# port is now the VK-172 GPS dongle, so storage lives on the internal SD.)
+# mount by label, so whatever card is formatted `mkfs.ext4 -L kismet`
+# (mmcblk0) gets mounted here -- also still matches a USB stick labelled
+# 'kismet' as a fallback. no matching device -> mount skipped and kismet
+# falls back to the overlay (see files/mnt/kismet), so the box still boots.
+
+config global
+	option auto_mount '1'
+	option auto_swap '1'
+	option check_fs '0'
+
+config mount
+	option target '/mnt/kismet'
+	option label 'kismet'
+	option fstype 'ext4'
+	option options 'rw,noatime'
+	option enabled '1'

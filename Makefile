@@ -53,7 +53,11 @@ PACKAGES := kismet kismet-capture-linux-wifi \
 	gpsd gpsd-clients picocom \
 	luci luci-ssl \
 	wget-ssl curl htop nano usbutils \
-	block-mount kmod-fs-ext4 e2fsprogs kmod-fs-vfat
+	block-mount kmod-fs-ext4 e2fsprogs kmod-fs-vfat \
+	kmod-mmc-mtk kmod-usb-acm
+
+# files/ overlay baked into the image; list them so edits retrigger the build
+FILES_SRC := $(shell find files -type f 2>/dev/null)
 
 SYSUPGRADE := $(IB)/bin/targets/$(OPENWRT_TARGET_PATH)/openwrt-$(OPENWRT_VERSION)-$(OPENWRT_TARGET)-$(OPENWRT_PROFILE)-squashfs-sysupgrade.bin
 
@@ -175,12 +179,12 @@ kismet: $(KISMET_BUILT)
 
 # --- assemble image ---
 
-$(SYSUPGRADE): $(KISMET_BUILT) $(IB)/.extracted
+$(SYSUPGRADE): $(KISMET_BUILT) $(IB)/.extracted $(FILES_SRC)
 	cp $(SDK)/bin/packages/$(OPENWRT_ARCH)/base/kismet*.ipk $(IB)/packages/
 	$(RUN) make -C $(IB) image \
 		PROFILE="$(OPENWRT_PROFILE)" \
 		PACKAGES="$(PACKAGES)" \
-		$(if $(wildcard files),FILES="$(CURDIR)/files/")
+		$(if $(wildcard files),FILES="/build/files/")
 
 image: $(SYSUPGRADE)
 

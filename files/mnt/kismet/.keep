@@ -1,0 +1,2 @@
+# mountpoint for the kismet USB stick (see /etc/config/fstab).
+# kept so log_prefix=/mnt/kismet/ resolves even with no stick attached.

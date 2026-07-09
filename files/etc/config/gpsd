@@ -1,0 +1,9 @@
+# VK-172 (u-blox 7) USB GPS. CDC-ACM device -> /dev/ttyACM0, NMEA @ 9600.
+# listen_globally 0 keeps gpsd bound to localhost; kismet reads it locally
+# (see gps= line in kismet_site.conf). procd respawns gpsd, so plugging the
+# dongle in after boot recovers on its own.
+config gpsd 'core'
+	option enabled '1'
+	option device '/dev/ttyACM0'
+	option port '2947'
+	option listen_globally '0'
