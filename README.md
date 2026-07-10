@@ -58,26 +58,33 @@ make distclean   # remove everything, start from scratch
 
 ### Option 1: sysupgrade (permanent)
 
-This replaces the existing firmware. Settings are not preserved since
-this is a different OpenWrt configuration.
+This replaces the existing firmware. Settings are **not** preserved, and
+the flash must be **forced**. This image uses DSA networking (compat
+version 1.1) while GL's stock firmware and older OpenWrt use swconfig
+(1.0); sysupgrade cannot migrate that config, so a normal upgrade aborts
+with an "Image version mismatch" error. You have to wipe the old config
+and force past the compat check.
 
 **Via LuCI (web UI):**
 
 1. Open `http://192.168.8.1` (default GL-iNet address)
 2. Go to System -> Backup / Flash Firmware
 3. Uncheck "Keep settings and retain the current configuration"
-4. Upload the `*-sysupgrade.bin` file and confirm
+4. Upload the `*-sysupgrade.bin` file
+5. When it warns about a version/compatibility mismatch, tick
+   "Force upgrade" and confirm
 
 **Via command line (from the router):**
 
 ```
 scp openwrt-imagebuilder-*/bin/targets/ramips/mt7621/*-sysupgrade.bin root@192.168.8.1:/tmp/
 ssh root@192.168.8.1
-sysupgrade -n /tmp/*-sysupgrade.bin
+sysupgrade -F -n /tmp/*-sysupgrade.bin
 ```
 
-The `-n` flag discards existing settings, which is what you want for
-a clean install of a different firmware build.
+`-n` discards the old config (required -- swconfig config cannot apply to
+DSA) and `-F` forces past the compat-version check. Without both,
+sysupgrade aborts on the version mismatch.
 
 ### Option 2: initramfs (temporary boot)
 
