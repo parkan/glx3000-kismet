@@ -1,0 +1,29 @@
+#!/bin/sh
+# radio on|off|status -- quick RX kill/enable for the survey monitor interfaces.
+# OpenWrt 24.10 ships no rfkill package and this kernel exposes no rfkill devices,
+# so we toggle the mon* vifs directly instead of via rfkill.
+
+case "${1:-status}" in
+	off)
+		for m in /sys/class/net/mon*; do
+			[ -e "$m" ] && ip link set "$(basename "$m")" down
+		done
+		echo "radios off (monitors down)"
+		;;
+	on)
+		/etc/init.d/survey-monitor start
+		echo "radios on (monitors up)"
+		;;
+	status)
+		found=0
+		for m in /sys/class/net/mon*; do
+			[ -e "$m" ] || continue
+			found=1
+			m=$(basename "$m")
+			echo "$m: $(cat "/sys/class/net/$m/operstate" 2>/dev/null)"
+		done
+		[ "$found" = 1 ] || echo "no monitor interfaces (run: radio on)"
+		;;
+	*)
+		echo "usage: radio on|off|status" >&2; exit 1 ;;
+esac

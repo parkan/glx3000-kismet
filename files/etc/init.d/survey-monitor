@@ -1,0 +1,37 @@
+#!/bin/sh /etc/rc.common
+# bring both wifi radios up as passive monitor interfaces (mon0, mon1) at boot.
+# the radios ship disabled; a survey box must stay RX-only, so we create monitor
+# vifs directly rather than let netifd beacon as an AP. kismet (native UI or the
+# survey CLI) then captures on mon0/mon1.
+
+START=95
+STOP=10
+
+start() {
+	# wait for the wifi phys to register after driver load
+	local t=0
+	while [ ! -e /sys/class/ieee80211/phy0 ] && [ "$t" -lt 10 ]; do
+		sleep 1; t=$((t + 1))
+	done
+
+	local i=0 phy mon
+	for phy in /sys/class/ieee80211/*; do
+		[ -e "$phy" ] || continue
+		phy=$(basename "$phy")
+		mon="mon$i"
+		# idempotent: only create if missing
+		[ -e "/sys/class/net/$mon" ] || iw phy "$phy" interface add "$mon" type monitor 2>/dev/null
+		ip link set "$mon" up 2>/dev/null
+		i=$((i + 1))
+	done
+}
+
+stop() {
+	local mon
+	for mon in /sys/class/net/mon*; do
+		[ -e "$mon" ] || continue
+		mon=$(basename "$mon")
+		ip link set "$mon" down 2>/dev/null
+		iw dev "$mon" del 2>/dev/null
+	done
+}
