@@ -1,0 +1,134 @@
+#!/bin/sh
+# survey session manager -- start/stop/status a kismet survey session.
+# usage: survey start [monitor|scan] | stop | status
+#
+# monitor (default): passive capture on mon0/mon1 -- RX-only, full frames
+#                    (management, probes, clients). the mission default.
+# scan:              active iw-scan feeder pushed to kismet's API. transmits
+#                    probe requests and needs managed interfaces -- off the
+#                    passive path, kept for completeness (enable radios first).
+#
+# reconciled from the survey-ui branch for the SD/GPS layout: logs to the SD at
+# /mnt/kismet (mounted by fstab), uses the gpsd *service* (does not spawn its
+# own), and talks to kismet with the fixed survey:survey creds set in
+# kismet_site.conf.
+
+SURVEY_DIR="/tmp/survey"
+SESSION_FILE="$SURVEY_DIR/session.json"
+FEEDER_PID="$SURVEY_DIR/feeder.pid"
+KISMET_PID="$SURVEY_DIR/kismet.pid"
+CONFIG="/etc/survey/config.json"
+LOG_DIR="/mnt/kismet"
+KISMET_AUTH="survey:survey"
+
+scan_interval() { jsonfilter -i "$CONFIG" -e '@.scan_interval' 2>/dev/null || echo 10; }
+
+die() { echo "error: $1" >&2; exit 1; }
+
+is_running() {
+	[ -f "$SESSION_FILE" ] && [ -f "$KISMET_PID" ] && kill -0 "$(cat "$KISMET_PID")" 2>/dev/null
+}
+
+setup_storage() {
+	mkdir -p "$SURVEY_DIR"
+	# the SD auto-mounts at /mnt/kismet via fstab; fall back to RAM if absent
+	if mountpoint -q "$LOG_DIR" 2>/dev/null; then
+		echo "logging to $LOG_DIR (SD)"
+	else
+		LOG_DIR="$SURVEY_DIR/logs"
+		mkdir -p "$LOG_DIR"
+		echo "warning: SD not mounted, logging to $LOG_DIR (RAM)" >&2
+	fi
+}
+
+# ensure passive monitor vifs exist (survey-monitor init usually made them at
+# boot); print the "-c mon0 -c mon1" source args for kismet
+ensure_monitors() {
+	local i=0 phy mon sources=""
+	for phy in /sys/class/ieee80211/*; do
+		[ -e "$phy" ] || continue
+		phy=$(basename "$phy")
+		mon="mon$i"
+		[ -e "/sys/class/net/$mon" ] || iw phy "$phy" interface add "$mon" type monitor 2>/dev/null
+		ip link set "$mon" up 2>/dev/null
+		sources="$sources -c $mon"
+		i=$((i + 1))
+	done
+	echo "$sources"
+}
+
+cmd_start() {
+	mode="${1:-monitor}"
+	is_running && die "session already running"
+	case "$mode" in monitor|scan) ;; *) die "unknown mode: $mode (monitor|scan)" ;; esac
+
+	setup_storage
+	timestamp=$(date +%s)
+	session_name="survey-$(date +%Y%m%d-%H%M%S)"
+
+	if [ "$mode" = "monitor" ]; then
+		sources="$(ensure_monitors)"
+		[ -n "$sources" ] || die "no radios / monitor interfaces available"
+		# shellcheck disable=SC2086
+		kismet --no-ncurses --daemonize -p "$LOG_DIR" -t "$session_name" \
+			--log-types kismet $sources 2>/dev/null
+		sleep 2
+		pgrep -f 'kismet.*--daemonize' > "$KISMET_PID" 2>/dev/null
+	else
+		# active scan: kismet aggregates, feeder pushes iw-scan results.
+		# needs managed interfaces -- bring radios up if none are present.
+		iw dev 2>/dev/null | grep -q 'type managed' || wifi up 2>/dev/null
+		kismet --no-ncurses --daemonize -p "$LOG_DIR" -t "$session_name" \
+			--log-types kismet 2>/dev/null
+		sleep 2
+		pgrep -f 'kismet.*--daemonize' > "$KISMET_PID" 2>/dev/null
+		SCAN_INTERVAL="$(scan_interval)" /usr/bin/iw-scan-feeder.sh &
+		echo "$!" > "$FEEDER_PID"
+	fi
+
+	cat > "$SESSION_FILE" <<-EOF
+	{"mode":"$mode","started":$timestamp,"name":"$session_name","log_dir":"$LOG_DIR"}
+	EOF
+	echo "session started: $session_name ($mode)"
+}
+
+cmd_stop() {
+	is_running || die "no session running"
+	[ -f "$FEEDER_PID" ] && { kill "$(cat "$FEEDER_PID")" 2>/dev/null; rm -f "$FEEDER_PID"; }
+	if [ -f "$KISMET_PID" ]; then
+		kill "$(cat "$KISMET_PID")" 2>/dev/null
+		sleep 2
+		rm -f "$KISMET_PID"
+	fi
+	killall kismet 2>/dev/null
+	# leave the monitor vifs up -- the box stays passive-ready. deliberately no
+	# `wifi up` here (that would beacon as an AP).
+	name=$(jsonfilter -i "$SESSION_FILE" -e '@.name' 2>/dev/null)
+	rm -f "$SESSION_FILE"
+	echo "session stopped: $name"
+}
+
+cmd_status() {
+	if ! is_running; then echo '{"running":false}'; return; fi
+	mode=$(jsonfilter -i "$SESSION_FILE" -e '@.mode' 2>/dev/null)
+	started=$(jsonfilter -i "$SESSION_FILE" -e '@.started' 2>/dev/null)
+	name=$(jsonfilter -i "$SESSION_FILE" -e '@.name' 2>/dev/null)
+	log_dir=$(jsonfilter -i "$SESSION_FILE" -e '@.log_dir' 2>/dev/null)
+	now=$(date +%s); uptime=$((now - started))
+	devices=$(curl -s -u "$KISMET_AUTH" "http://127.0.0.1:2501/system/status.json" 2>/dev/null | \
+		jsonfilter -e '@.kismet.system.devices.count' 2>/dev/null || echo 0)
+	gps_fix=$(curl -s -u "$KISMET_AUTH" "http://127.0.0.1:2501/gps/location.json" 2>/dev/null | \
+		jsonfilter -e '@.kismet.common.location.fix' 2>/dev/null || echo 0)
+	[ "$gps_fix" -ge 2 ] 2>/dev/null && gps_fix="true" || gps_fix="false"
+	log_size=$(du -sh "$log_dir" 2>/dev/null | awk '{print $1}')
+	cat <<-EOF
+	{"running":true,"mode":"$mode","name":"$name","uptime":$uptime,"devices":$devices,"gps_fix":$gps_fix,"log_size":"${log_size:-0}"}
+	EOF
+}
+
+case "${1:-}" in
+	start)  cmd_start "$2" ;;
+	stop)   cmd_stop ;;
+	status) cmd_status ;;
+	*)      echo "usage: survey start [monitor|scan] | stop | status" >&2; exit 1 ;;
+esac

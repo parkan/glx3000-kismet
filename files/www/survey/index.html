@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<title>Survey</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="bar">
+	<h1>Survey</h1>
+	<span id="state-pill" class="pill pill-off">--</span>
+</header>
+
+<main>
+	<section class="card" id="control">
+		<div class="row">
+			<label for="mode">Mode</label>
+			<select id="mode">
+				<option value="scan">scan (iw, AP stays up)</option>
+				<option value="monitor">monitor (full capture)</option>
+			</select>
+		</div>
+		<div class="row btns">
+			<button id="btn-start" class="btn btn-go">Start</button>
+			<button id="btn-stop" class="btn btn-stop">Stop</button>
+		</div>
+	</section>
+
+	<section class="stats">
+		<div class="stat"><span class="stat-val" id="s-devices">--</span><span class="stat-lbl">devices</span></div>
+		<div class="stat"><span class="stat-val" id="s-uptime">--</span><span class="stat-lbl">uptime</span></div>
+		<div class="stat"><span class="stat-val" id="s-gps">--</span><span class="stat-lbl">gps fix</span></div>
+		<div class="stat"><span class="stat-val" id="s-log">--</span><span class="stat-lbl">log size</span></div>
+	</section>
+
+	<section class="card gps-card" id="gps-card" hidden>
+		<span class="gps-coord" id="gps-lat">lat --</span>
+		<span class="gps-coord" id="gps-lon">lon --</span>
+		<span class="gps-coord" id="gps-sats">-- sats</span>
+	</section>
+
+	<section class="filters">
+		<input id="filter" type="search" placeholder="filter ssid / bssid" autocomplete="off" autocapitalize="off" spellcheck="false">
+		<select id="sort">
+			<option value="sig">signal</option>
+			<option value="seen">last seen</option>
+			<option value="name">ssid</option>
+		</select>
+		<select id="window" title="only show devices seen within this window">
+			<option value="60">1m</option>
+			<option value="300" selected>5m</option>
+			<option value="900">15m</option>
+			<option value="0">all</option>
+		</select>
+	</section>
+
+	<section id="devices" class="devices">
+		<p class="empty" id="empty">no devices yet</p>
+	</section>
+</main>
+
+<footer class="foot">
+	<label class="auto"><input type="checkbox" id="auto" checked> auto-refresh</label>
+	<span id="updated" class="updated"></span>
+</footer>
+
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

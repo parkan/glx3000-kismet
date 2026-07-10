@@ -1,0 +1,103 @@
+#!/bin/sh
+# survey-ui backend (uhttpd cgi)
+#
+# kismet binds to 127.0.0.1 only (see kismet_site.conf), so the browser
+# cannot reach it directly. this script is the only thing that talks to
+# kismet -- it proxies the handful of endpoints the ui needs and keeps the
+# credentials server-side. it also drives the survey cli for session control.
+#
+# runs as root under uhttpd, which is what the survey cli needs anyway
+# (iw, ip link, mount, kismet).
+
+KISMET_URL="http://127.0.0.1:2501"
+KISMET_AUTH="survey:survey"
+SURVEY="/usr/bin/survey"
+CONFIG="/etc/survey/config.json"
+
+# field-limited device summary -- a busy survey can track thousands of
+# devices, so we only pull what the list renders to keep the payload small
+DEV_FIELDS='{"fields":[["kismet.device.base.macaddr","mac"],["kismet.device.base.commonname","name"],["kismet.device.base.type","type"],["kismet.device.base.channel","chan"],["kismet.device.base.frequency","freq"],["kismet.device.base.signal/kismet.common.signal.last_signal","sig"],["kismet.device.base.last_time","seen"],["kismet.device.base.crypt","crypt"],["kismet.device.base.manuf","manuf"],["kismet.device.base.packets.total","pkts"]]}'
+
+# pull one key out of QUERY_STRING without eval
+qs_get() {
+	echo "$QUERY_STRING" | tr '&' '\n' | while IFS='=' read -r k v; do
+		if [ "$k" = "$1" ]; then printf '%s' "$v"; break; fi
+	done
+}
+
+hdr_json() {
+	printf 'Content-Type: application/json\r\n'
+	printf 'Cache-Control: no-store\r\n'
+	# X-Server-Time lets the client compute device age against router time
+	# instead of its own (possibly skewed) clock
+	[ -n "$1" ] && printf 'X-Server-Time: %s\r\n' "$1"
+	printf '\r\n'
+}
+
+fail() {
+	printf 'Status: %s\r\n' "$1"
+	printf 'Content-Type: application/json\r\n\r\n'
+	printf '{"error":"%s"}\n' "$2"
+	exit 0
+}
+
+need_post() {
+	[ "$REQUEST_METHOD" = "POST" ] || fail "405 Method Not Allowed" "use POST"
+}
+
+action=$(qs_get action)
+
+case "$action" in
+status)
+	hdr_json
+	$SURVEY status
+	;;
+start)
+	need_post
+	mode=$(qs_get mode)
+	case "$mode" in scan|monitor) ;; *) mode=monitor ;; esac
+	$SURVEY start "$mode" >/dev/null 2>&1
+	hdr_json
+	$SURVEY status
+	;;
+stop)
+	need_post
+	$SURVEY stop >/dev/null 2>&1
+	hdr_json
+	$SURVEY status
+	;;
+devices)
+	window=$(qs_get window)
+	case "$window" in ''|*[!0-9]*) window=300 ;; esac
+	resp=$(curl -s -u "$KISMET_AUTH" --data-urlencode "json=$DEV_FIELDS" \
+		"$KISMET_URL/devices/views/all/last-time/-$window/devices.json" 2>/dev/null)
+	[ -n "$resp" ] || resp='[]'
+	hdr_json "$(date +%s)"
+	printf '%s' "$resp"
+	;;
+gps)
+	resp=$(curl -s -u "$KISMET_AUTH" "$KISMET_URL/gps/location.json" 2>/dev/null)
+	[ -n "$resp" ] || resp='{}'
+	hdr_json
+	printf '%s' "$resp"
+	;;
+config)
+	if [ "$REQUEST_METHOD" = "POST" ]; then
+		body=$(head -c "${CONTENT_LENGTH:-0}")
+		interval=$(echo "$body" | tr '&' '\n' | sed -n 's/^scan_interval=//p')
+		case "$interval" in ''|*[!0-9]*) fail "400 Bad Request" "scan_interval must be an integer" ;; esac
+		# surgical replace of the validated integer; leaves the rest untouched.
+		# note: a running feeder reads scan_interval only at session start,
+		# so this takes effect on the next 'start'.
+		sed -i 's/\("scan_interval"[[:space:]]*:[[:space:]]*\)[0-9][0-9]*/\1'"$interval"'/' "$CONFIG"
+		hdr_json
+		cat "$CONFIG"
+	else
+		hdr_json
+		cat "$CONFIG" 2>/dev/null || echo '{}'
+	fi
+	;;
+*)
+	fail "400 Bad Request" "unknown action"
+	;;
+esac

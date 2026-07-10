@@ -1,0 +1,7 @@
+{
+  "ssid_filter": "*",
+  "radios": ["phy0", "phy1"],
+  "gps_device": "auto",
+  "scan_interval": 10,
+  "known_aps": []
+}
