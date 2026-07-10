@@ -29,10 +29,23 @@ is_running() {
 	[ -f "$SESSION_FILE" ] && [ -f "$KISMET_PID" ] && kill -0 "$(cat "$KISMET_PID")" 2>/dev/null
 }
 
+# stop every kismet and WAIT for it to actually exit. kismet catches SIGTERM and
+# flushes its logs (seconds, more with a big kismetdb), so we wait up to 8s then
+# SIGKILL stragglers -- otherwise a rapid start/stop leaves instances fighting
+# over port 2501.
+stop_kismet() {
+	pgrep -x kismet >/dev/null 2>&1 || return 0
+	killall kismet 2>/dev/null
+	local i=0
+	while pgrep -x kismet >/dev/null 2>&1 && [ "$i" -lt 8 ]; do sleep 1; i=$((i + 1)); done
+	pgrep -x kismet >/dev/null 2>&1 && { killall -9 kismet 2>/dev/null; sleep 1; }
+}
+
 setup_storage() {
 	mkdir -p "$SURVEY_DIR"
-	# the SD auto-mounts at /mnt/kismet via fstab; fall back to RAM if absent
-	if mountpoint -q "$LOG_DIR" 2>/dev/null; then
+	# the SD auto-mounts at /mnt/kismet via fstab; fall back to RAM if absent.
+	# check /proc/mounts directly -- more reliable than mountpoint(1) here.
+	if grep -q " $LOG_DIR " /proc/mounts 2>/dev/null; then
 		echo "logging to $LOG_DIR (SD)"
 	else
 		LOG_DIR="$SURVEY_DIR/logs"
@@ -59,8 +72,12 @@ ensure_monitors() {
 
 cmd_start() {
 	mode="${1:-monitor}"
-	is_running && die "session already running"
 	case "$mode" in monitor|scan) ;; *) die "unknown mode: $mode (monitor|scan)" ;; esac
+
+	# clean slate: stop any running kismet + stale state, so a rapid second
+	# "start" can't leave two instances fighting over port 2501
+	stop_kismet
+	rm -f "$SESSION_FILE" "$KISMET_PID" "$FEEDER_PID"
 
 	setup_storage
 	timestamp=$(date +%s)
@@ -73,7 +90,7 @@ cmd_start() {
 		kismet --no-ncurses --daemonize -p "$LOG_DIR" -t "$session_name" \
 			--log-types kismet $sources 2>/dev/null
 		sleep 2
-		pgrep -f 'kismet.*--daemonize' > "$KISMET_PID" 2>/dev/null
+		pgrep -x kismet | head -1 > "$KISMET_PID"
 	else
 		# active scan: kismet aggregates, feeder pushes iw-scan results.
 		# needs managed interfaces -- bring radios up if none are present.
@@ -81,7 +98,7 @@ cmd_start() {
 		kismet --no-ncurses --daemonize -p "$LOG_DIR" -t "$session_name" \
 			--log-types kismet 2>/dev/null
 		sleep 2
-		pgrep -f 'kismet.*--daemonize' > "$KISMET_PID" 2>/dev/null
+		pgrep -x kismet | head -1 > "$KISMET_PID"
 		SCAN_INTERVAL="$(scan_interval)" /usr/bin/iw-scan-feeder.sh &
 		echo "$!" > "$FEEDER_PID"
 	fi
@@ -94,17 +111,12 @@ cmd_start() {
 
 cmd_stop() {
 	is_running || die "no session running"
+	name=$(jsonfilter -i "$SESSION_FILE" -e '@.name' 2>/dev/null)
 	[ -f "$FEEDER_PID" ] && { kill "$(cat "$FEEDER_PID")" 2>/dev/null; rm -f "$FEEDER_PID"; }
-	if [ -f "$KISMET_PID" ]; then
-		kill "$(cat "$KISMET_PID")" 2>/dev/null
-		sleep 2
-		rm -f "$KISMET_PID"
-	fi
-	killall kismet 2>/dev/null
+	stop_kismet
 	# leave the monitor vifs up -- the box stays passive-ready. deliberately no
 	# `wifi up` here (that would beacon as an AP).
-	name=$(jsonfilter -i "$SESSION_FILE" -e '@.name' 2>/dev/null)
-	rm -f "$SESSION_FILE"
+	rm -f "$SESSION_FILE" "$KISMET_PID"
 	echo "session stopped: $name"
 }
 
