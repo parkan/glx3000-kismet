@@ -127,10 +127,13 @@ cmd_status() {
 	name=$(jsonfilter -i "$SESSION_FILE" -e '@.name' 2>/dev/null)
 	log_dir=$(jsonfilter -i "$SESSION_FILE" -e '@.log_dir' 2>/dev/null)
 	now=$(date +%s); uptime=$((now - started))
+	# kismet's JSON keys are FLAT with literal dots in the name, e.g.
+	# {"kismet.common.location.fix": 3}. a dotted jsonfilter path (@.kismet.common...)
+	# is parsed as nesting and matches nothing -- must use bracket notation.
 	devices=$(curl -s -u "$KISMET_AUTH" "http://127.0.0.1:2501/system/status.json" 2>/dev/null | \
-		jsonfilter -e '@.kismet.system.devices.count' 2>/dev/null || echo 0)
+		jsonfilter -e '@["kismet.system.devices.count"]' 2>/dev/null || echo 0)
 	gps_fix=$(curl -s -u "$KISMET_AUTH" "http://127.0.0.1:2501/gps/location.json" 2>/dev/null | \
-		jsonfilter -e '@.kismet.common.location.fix' 2>/dev/null || echo 0)
+		jsonfilter -e '@["kismet.common.location.fix"]' 2>/dev/null || echo 0)
 	[ "$gps_fix" -ge 2 ] 2>/dev/null && gps_fix="true" || gps_fix="false"
 	log_size=$(du -sh "$log_dir" 2>/dev/null | awk '{print $1}')
 	cat <<-EOF
