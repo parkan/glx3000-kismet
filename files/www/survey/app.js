@@ -133,8 +133,12 @@ function renderDevices() {
 		const cls = sig != null ? sigClass(sig) : "";
 		const pct = sig != null ? sigPct(sig) : 0;
 		const sigTxt = sig != null ? `${sig} dBm` : "--";
+		// no SSID: every client, plus hidden APs. the vendor is then the most
+		// identifying thing we have (an SSID can be hidden, an OUI can't), so lead
+		// with it rather than a useless "(hidden)".
 		const hidden = !d.name || d.name === d.mac;
-		const name = hidden ? "(hidden)" : esc(d.name);
+		const vendor = d.manuf && d.manuf !== "Unknown" ? d.manuf : "";
+		const name = hidden ? (vendor ? esc(vendor) : "(unknown device)") : esc(d.name);
 		const chan = d.chan || (d.freq ? Math.round(d.freq / 1000) : "");
 		const crypt = d.crypt && d.crypt !== "Open" ? d.crypt : (d.crypt === "Open" ? "open" : "");
 		const age = d.seen ? fmtAge(now - d.seen) : "";
@@ -150,7 +154,7 @@ function renderDevices() {
 				${chan ? `<span class="badge">ch ${esc(String(chan))}</span>` : ""}
 				${d.type ? `<span class="badge">${esc(shortType(d.type))}</span>` : ""}
 				${crypt ? `<span>${esc(crypt)}</span>` : ""}
-				${d.manuf && d.manuf !== "Unknown" ? `<span>${esc(d.manuf)}</span>` : ""}
+				${vendor && !hidden ? `<span>${esc(vendor)}</span>` : ""}
 				${age ? `<span>${age} ago</span>` : ""}
 			</div>
 		</div>`;
