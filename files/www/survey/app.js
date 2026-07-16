@@ -89,13 +89,15 @@ function renderStatus(st) {
 function renderGps(g) {
 	const loc = g["kismet.common.location.geopoint"];
 	const fix = g["kismet.common.location.fix"] || 0;
-	const sats = g["kismet.common.location.num_satellites"];
+	// kismet reports no satellite count, so survey-api merges gpsd's in:
+	// usat = used in the fix, nsat = in view
+	const usat = g["survey.gps.usat"], nsat = g["survey.gps.nsat"];
 	const card = $("gps-card");
 	if (fix >= 2 && Array.isArray(loc) && loc.length === 2) {
 		// kismet geopoint is [lon, lat]
 		$("gps-lat").textContent = "lat " + loc[1].toFixed(5);
 		$("gps-lon").textContent = "lon " + loc[0].toFixed(5);
-		$("gps-sats").textContent = (sats != null ? sats : "?") + " sats";
+		$("gps-sats").textContent = (nsat != null ? usat + "/" + nsat : "?") + " sats";
 		card.hidden = false;
 	} else {
 		card.hidden = true;

@@ -78,8 +78,20 @@ devices)
 gps)
 	resp=$(curl -s -u "$KISMET_AUTH" "$KISMET_URL/gps/location.json" 2>/dev/null)
 	[ -n "$resp" ] || resp='{}'
+	# kismet reports no satellite count on any endpoint, so read it from gpsd.
+	# match "nSat", not class:SKY -- gpsd also emits DOP-only SKY messages that
+	# carry no counts. --seconds bounds it (no timeout(1) in this busybox) and
+	# grep -m1 exits on the first hit, so it usually costs ~1s.
+	sky=$(gpspipe -w --seconds 4 2>/dev/null | grep -m1 '"nSat":')
+	nsat=$(printf '%s' "$sky" | sed -n 's/.*"nSat":\([0-9]*\).*/\1/p')
+	usat=$(printf '%s' "$sky" | sed -n 's/.*"uSat":\([0-9]*\).*/\1/p')
 	hdr_json
-	printf '%s' "$resp"
+	if [ "$resp" = "{}" ]; then
+		printf '{"survey.gps.nsat":%s,"survey.gps.usat":%s}' "${nsat:-0}" "${usat:-0}"
+	else
+		printf '%s,"survey.gps.nsat":%s,"survey.gps.usat":%s}' \
+			"$(printf '%s' "$resp" | sed 's/}[[:space:]]*$//')" "${nsat:-0}" "${usat:-0}"
+	fi
 	;;
 config)
 	if [ "$REQUEST_METHOD" = "POST" ]; then
