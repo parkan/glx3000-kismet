@@ -59,9 +59,14 @@ PACKAGES := kismet kismet-capture-linux-wifi \
 # files/ overlay baked into the image; list them so edits retrigger the build
 FILES_SRC := $(shell find files -type f 2>/dev/null)
 
+# kismet's MAC->vendor db. generated from the IEEE registry rather than committed:
+# it's a ~400K artifact that goes stale. kismet_package.conf already points at
+# /etc/kismet/kismet_manuf.txt.gz, so no config change is needed.
+OUI_DB := files/etc/kismet/kismet_manuf.txt.gz
+
 SYSUPGRADE := $(IB)/bin/targets/$(OPENWRT_TARGET_PATH)/openwrt-$(OPENWRT_VERSION)-$(OPENWRT_TARGET)-$(OPENWRT_PROFILE)-squashfs-sysupgrade.bin
 
-.PHONY: all container kismet image clean distclean
+.PHONY: all container kismet image oui clean distclean
 
 all: image
 
@@ -179,7 +184,12 @@ kismet: $(KISMET_BUILT)
 
 # --- assemble image ---
 
-$(SYSUPGRADE): $(KISMET_BUILT) $(IB)/.extracted $(FILES_SRC)
+$(OUI_DB): tools/gen-oui-db.sh | $(CONTAINER_BUILT)
+	$(RUN) sh tools/gen-oui-db.sh $@
+
+oui: $(OUI_DB)
+
+$(SYSUPGRADE): $(KISMET_BUILT) $(IB)/.extracted $(FILES_SRC) $(OUI_DB)
 	cp $(SDK)/bin/packages/$(OPENWRT_ARCH)/base/kismet*.ipk $(IB)/packages/
 	$(RUN) make -C $(IB) image \
 		PROFILE="$(OPENWRT_PROFILE)" \
