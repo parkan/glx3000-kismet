@@ -17,6 +17,7 @@ SURVEY_DIR="/tmp/survey"
 SESSION_FILE="$SURVEY_DIR/session.json"
 FEEDER_PID="$SURVEY_DIR/feeder.pid"
 KISMET_PID="$SURVEY_DIR/kismet.pid"
+SOURCES_CONF="$SURVEY_DIR/sources.conf"
 CONFIG="/etc/survey/config.json"
 LOG_DIR="/mnt/kismet"
 KISMET_AUTH="survey:survey"
@@ -55,19 +56,38 @@ setup_storage() {
 }
 
 # ensure passive monitor vifs exist (survey-monitor init usually made them at
-# boot); print the "-c mon0 -c mon1" source args for kismet
+# boot) and write a kismet source config pinning each one's channel hop list.
+#
+# kismet enumerates channels per-DEVICE, but the MT7615 is DBDC -- one device,
+# two phys -- so it hands BOTH radios the same 5GHz hop list. The 2.4GHz radio
+# then cannot tune anything in its list, every hop silently fails, and it parks
+# on ch1 forever: every 2.4GHz network not on ch1 is invisible. So pin each
+# source's list to what ITS phy actually reports.
+#
+# This has to go in a config file consumed via --override: the -c command line
+# cannot express it. `-c mon0:channels=1,6,11` is mis-parsed (the comma collides
+# with kismet's option separator, so only "1" survives), and quoting it so the
+# quotes reach kismet kills the capture helper ("Remote side closed read pipe").
 ensure_monitors() {
-	local i=0 phy mon sources=""
+	local i=0 phy mon chans n=0
+	: > "$SOURCES_CONF"
 	for phy in /sys/class/ieee80211/*; do
 		[ -e "$phy" ] || continue
 		phy=$(basename "$phy")
 		mon="mon$i"
 		[ -e "/sys/class/net/$mon" ] || iw phy "$phy" interface add "$mon" type monitor 2>/dev/null
 		ip link set "$mon" up 2>/dev/null
-		sources="$sources -c $mon"
+		chans=$(iw phy "$phy" info 2>/dev/null | grep 'MHz \[' | grep -v 'disabled' |
+			sed -n 's/.*\[\([0-9]*\)\].*/\1/p' | tr '\n' ',' | sed 's/,$//')
+		if [ -n "$chans" ]; then
+			echo "source=$mon:channels=\"$chans\"" >> "$SOURCES_CONF"
+		else
+			echo "source=$mon" >> "$SOURCES_CONF"
+		fi
+		n=$((n + 1))
 		i=$((i + 1))
 	done
-	echo "$sources"
+	[ "$n" -gt 0 ]
 }
 
 cmd_start() {
@@ -84,11 +104,9 @@ cmd_start() {
 	session_name="survey-$(date +%Y%m%d-%H%M%S)"
 
 	if [ "$mode" = "monitor" ]; then
-		sources="$(ensure_monitors)"
-		[ -n "$sources" ] || die "no radios / monitor interfaces available"
-		# shellcheck disable=SC2086
-		kismet --no-ncurses --daemonize -p "$LOG_DIR" -t "$session_name" \
-			--log-types kismet $sources 2>/dev/null
+		ensure_monitors || die "no radios / monitor interfaces available"
+		kismet --no-ncurses --daemonize --override "$SOURCES_CONF" \
+			-p "$LOG_DIR" -t "$session_name" --log-types kismet 2>/dev/null
 		sleep 2
 		pgrep -x kismet | head -1 > "$KISMET_PID"
 	else
